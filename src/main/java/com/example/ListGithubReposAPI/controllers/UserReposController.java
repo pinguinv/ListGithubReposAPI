@@ -17,8 +17,6 @@ public class UserReposController {
 
     @GetMapping("getGithubUserRepos/{user}")
     public ResponseEntity<?> getUserRepos(@PathVariable String user) {
-        System.out.println(user + " repos requested!!");
-
         return userReposService.getGithubUserRepos(user);
     }
 

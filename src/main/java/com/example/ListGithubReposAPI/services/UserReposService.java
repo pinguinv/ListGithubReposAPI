@@ -84,7 +84,6 @@ public class UserReposService {
 
                         return new RepoInfo(repoName, ownerLogin, branchesList);
                     } catch (HttpClientErrorException e) {
-                        System.out.println("Status code: " + e.getStatusCode());
                         throw e;
                     }
                 });
