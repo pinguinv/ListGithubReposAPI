@@ -35,13 +35,13 @@ names, owners, and branch details.
 3. **Build the Project**
 
    ```bash
-   gradle build
+   ./gradlew build
    ```
 
 4. **Run the Application**
 
    ```bash
-   gradle bootRun
+   ./gradlew bootRun
    ```
 
    The API will be available at `http://localhost:8080`.

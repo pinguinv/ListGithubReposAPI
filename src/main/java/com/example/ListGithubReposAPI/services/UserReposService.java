@@ -1,13 +1,12 @@
 package com.example.ListGithubReposAPI.services;
 
+import com.example.ListGithubReposAPI.config.ApplicationConfig;
 import com.example.ListGithubReposAPI.models.RepoBranch;
 import com.example.ListGithubReposAPI.models.RepoInfo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
@@ -29,6 +28,9 @@ public class UserReposService {
     private final ObjectMapper mapper;
     private final ExecutorService executorService;
 
+    @Autowired
+    private ApplicationConfig applicationConfig;
+
     public UserReposService() {
         restTemplate = new RestTemplate();
         mapper = new ObjectMapper();
@@ -44,7 +46,7 @@ public class UserReposService {
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("accept", "application/vnd.github+json");
-        headers.set("authorization", "Bearer ${github.access.token}");
+        headers.set("Authorization", "Bearer " + applicationConfig.getToken());
 
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
@@ -52,7 +54,7 @@ public class UserReposService {
 
         try {
             // Make GET request
-            String response = restTemplate.getForObject(githubApiUrl, String.class, entity, String.class);
+            String response = restTemplate.exchange(githubApiUrl, HttpMethod.GET, entity, String.class).getBody();
             JsonNode repos = mapper.readTree(response);
 
             List<Callable<RepoInfo>> tasks = new ArrayList<>();
@@ -65,14 +67,14 @@ public class UserReposService {
                 String repoName = repo.get("name").asText();
                 String ownerLogin = repo.get("owner").get("login").asText();
 
-                String repoBranchesUrl = "https://api.github.com/repos/" + user + "/" + repoName + "/branches";
+                String repoBranchesUrl = "https://api.github.com/repos/" + ownerLogin + "/" + repoName + "/branches";
 
                 // Run requests for branches concurrently
                 tasks.add(() -> {
                     try {
                         List<RepoBranch> branchesList = new ArrayList<>();
 
-                        String repoBranchesResponse = restTemplate.getForObject(repoBranchesUrl, String.class);
+                        String repoBranchesResponse = restTemplate.exchange(repoBranchesUrl, HttpMethod.GET, entity, String.class).getBody();
                         JsonNode branches = mapper.readTree(repoBranchesResponse);
 
                         for (JsonNode branch : branches) {
@@ -94,19 +96,19 @@ public class UserReposService {
             for (Future<RepoInfo> future : futures)
                 userRepos.add(future.get());
 
-
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
                 System.out.println("User not found");
 
                 Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("status", 404);
+                errorResponse.put("status", HttpStatus.NOT_FOUND.value());
                 errorResponse.put("message", "User '" + user + "' not found");
 
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
             }
 
             throw e;
+
         } catch (Exception e) {
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("status", 500);
