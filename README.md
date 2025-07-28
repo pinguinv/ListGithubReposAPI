@@ -1,16 +1,12 @@
 # ListGithubReposAPI
 
-API for listing GitHub user repositories, excluding forks, with branch names and latest commit SHAs.
-
-## Overview
-
 This project provides a REST API to fetch all non-fork repositories for a specified GitHub user, including repository
 names, owners, and branch details.
 
 ## Prerequisites
 
 - Java 21
-- Gradle 3.5.4
+- Spring Boot 3.5.4
 - A valid GitHub Personal Access Token (PAT) with `repo` scope
 
 ## Setup
@@ -51,7 +47,7 @@ names, owners, and branch details.
 ### Endpoint: List User Repositories
 
 - **Method**: `GET`
-- **Path**: `/getGithubUserRepos/{user}`
+- **Path**: `/api/getGithubUserRepos/{user}`
 - **Description**: Fetches non-fork repositories for the specified GitHub user.
 - **Path Parameter**:
     - `user`: The GitHub username (e.g., `octocat`).
@@ -59,7 +55,7 @@ names, owners, and branch details.
 #### Example Request
 
 ```bash
-curl http://localhost:8080/getGithubUserRepos/octocat
+curl http://localhost:8080/api/getGithubUserRepos/octocat
 ```
 
 #### Success Response
@@ -95,11 +91,15 @@ curl http://localhost:8080/getGithubUserRepos/octocat
 
   ```json
   {
-    "status": "404",
+    "status": 404,
     "message": "User not found"
   }
   ```
 
-## Integration Tests
+## Integration Test
 
-Integration tests are not implemented yet.
+Run integration test
+
+```bash
+./gradlew test
+```

@@ -5,6 +5,7 @@ import com.example.ListGithubReposAPI.models.RepoBranch;
 import com.example.ListGithubReposAPI.models.RepoInfo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -16,10 +17,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 @Service
 public class UserReposService {
@@ -41,7 +41,46 @@ public class UserReposService {
         ((SimpleClientHttpRequestFactory) restTemplate.getRequestFactory()).setReadTimeout(5000); // 5s
     }
 
+    private Callable<RepoInfo> getRepoInfoCallable(String ownerLogin, String repoName, HttpEntity<String> entity) {
+        return () -> {
+            String repoBranchesUrl = "https://api.github.com/repos/" + ownerLogin + "/" + repoName + "/branches";
+
+            try {
+                List<RepoBranch> branchesList = new ArrayList<>();
+
+                String repoBranchesResponse = restTemplate.exchange(repoBranchesUrl, HttpMethod.GET, entity, String.class).getBody();
+                JsonNode branches = mapper.readTree(repoBranchesResponse);
+
+                for (JsonNode branch : branches) {
+                    String branchName = branch.get("name").asText();
+                    String lastCommitSha = branch.get("commit").get("sha").asText();
+
+                    branchesList.add(new RepoBranch(branchName, lastCommitSha));
+                }
+
+                return new RepoInfo(repoName, ownerLogin, branchesList);
+            } catch (HttpClientErrorException e) {
+                Logger.getLogger("RepoInfoLogger").log(Level.WARNING,
+                        "Failed to fetch branches for repo " + repoName + ": " + e.getStatusCode() + " " + e.getMessage());
+
+                return new RepoInfo(repoName, ownerLogin, List.of());
+            }
+        };
+    }
+
+    private ResponseEntity<Map<String, Object>> getErrorResponse(HttpStatus httpStatus, String message) {
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("status", httpStatus.value());
+        errorResponse.put("message", message);
+
+        return ResponseEntity.status(httpStatus.value()).body(errorResponse);
+    }
+
     public ResponseEntity<?> getGithubUserRepos(String user) {
+        if (user.isBlank()) {
+            return getErrorResponse(HttpStatus.NOT_FOUND, "User '" + user + "' not found");
+        }
+
         String githubApiUrl = "https://api.github.com/users/" + user + "/repos?type=all";
 
         HttpHeaders headers = new HttpHeaders();
@@ -64,31 +103,11 @@ public class UserReposService {
 
                 if (isFork) continue;
 
-                String repoName = repo.get("name").asText();
                 String ownerLogin = repo.get("owner").get("login").asText();
-
-                String repoBranchesUrl = "https://api.github.com/repos/" + ownerLogin + "/" + repoName + "/branches";
+                String repoName = repo.get("name").asText();
 
                 // Run requests for branches concurrently
-                tasks.add(() -> {
-                    try {
-                        List<RepoBranch> branchesList = new ArrayList<>();
-
-                        String repoBranchesResponse = restTemplate.exchange(repoBranchesUrl, HttpMethod.GET, entity, String.class).getBody();
-                        JsonNode branches = mapper.readTree(repoBranchesResponse);
-
-                        for (JsonNode branch : branches) {
-                            String branchName = branch.get("name").asText();
-                            String lastCommitSha = branch.get("commit").get("sha").asText();
-
-                            branchesList.add(new RepoBranch(branchName, lastCommitSha));
-                        }
-
-                        return new RepoInfo(repoName, ownerLogin, branchesList);
-                    } catch (HttpClientErrorException e) {
-                        throw e;
-                    }
-                });
+                tasks.add(getRepoInfoCallable(ownerLogin, repoName, entity));
             }
 
             List<Future<RepoInfo>> futures = executorService.invokeAll(tasks);
@@ -98,25 +117,28 @@ public class UserReposService {
 
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                System.out.println("User not found");
-
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("status", HttpStatus.NOT_FOUND.value());
-                errorResponse.put("message", "User '" + user + "' not found");
-
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+                return getErrorResponse(HttpStatus.NOT_FOUND, "User '" + user + "' not found");
             }
 
             throw e;
 
         } catch (Exception e) {
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("status", 500);
-            errorResponse.put("message", "An error occurred while fetching repositiories: " + e.getMessage());
-
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            return getErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "An error occurred while fetching repositories: " + e.getMessage());
         }
 
         return ResponseEntity.ok(userRepos);
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }
